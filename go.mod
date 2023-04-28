@@ -1,4 +1,4 @@
-module github.com/chllamas/ezw_api
+module example/ezw_api
 
 go 1.20
 
