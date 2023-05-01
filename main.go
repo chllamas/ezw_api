@@ -5,6 +5,8 @@ import (
     "log"
     "os"
 
+    "net/http"
+    "github.com/gin-gonic/gin"
      _ "github.com/go-sql-driver/mysql"
      _ "github.com/joho/godotenv/autoload"
 )
@@ -20,6 +22,12 @@ func main() {
         log.Fatalf("failed to ping: %v", err)
     }
 
-    log.Println("Successfully connected to PlanetScale!")
+    router := gin.Default()
+    router.GET("/ping", func(c *gin.Context) {
+        c.JSON(http.StatusOK, gin.H{
+            "message": "Hello",
+        })
+    })
+    router.Run()
 }
 
