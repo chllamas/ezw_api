@@ -1,13 +1,15 @@
-package main
+package main 
 
-import (
+import ( 
     "os"
     "log"
+    "strings"
     "net/http"
-    "database/sql"
-    "github.com/gin-gonic/gin"
-     _ "github.com/go-sql-driver/mysql"
-     _ "github.com/joho/godotenv/autoload"
+
+	"github.com/clerkinc/clerk-sdk-go/clerk"
+	"github.com/gin-gonic/gin"
+	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/joho/godotenv/autoload"
 )
 
 func handle_pong(c *gin.Context) {
@@ -16,18 +18,38 @@ func handle_pong(c *gin.Context) {
     })
 }
 
-func main() {
-    db, err := sql.Open("mysql", os.Getenv("DSN"))
-    if err != nil {
-        log.Fatalf("failed to connect: %v", err)
-    }
-    defer db.Close()
+func AuthMiddleware(clerkClient *clerk.Client) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        accTok := c.Request.Header.Get("Authorization")
+        tokArr := strings.Split(accTok, " ")
+        accessToken := tokArr[1]
+        log.Printf("Recieved token: %s\n", accessToken)
 
-    if err := db.Ping(); err != nil {
-        log.Fatalf("failed to ping: %v", err)
+        if accessToken == "" {
+            c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+            c.Abort()
+            return
+        }
+
+        if _, err := (*clerkClient).VerifyToken(accessToken); err != nil {
+            c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+            c.Abort()
+            return
+        }
+
+        c.Next()
+    }
+}
+
+func main() {
+    clerkClient, err := clerk.NewClient(os.Getenv("CLERK_SECRET_KEY"))
+
+    if err != nil {
+        log.Fatalf("Clerk Client error: %v", err)
     }
 
     router := gin.Default()
+    router.Use(AuthMiddleware(&clerkClient))
     router.GET("/ping", handle_pong)
     router.Run("127.0.0.1:8000")
 }
