@@ -1,4 +1,4 @@
-FROM fedora:38
+FROM fedora:latest
 
 RUN dnf update -y && \
     dnf install -y git golang && \
@@ -6,17 +6,15 @@ RUN dnf update -y && \
 
 ENV GOROOT /usr/lib/golang
 ENV GOPATH /go
-ENV GOPATH /go/bin:$PATH
+ENV PATH /go/bin:$PATH
 
-RUN mkdir -p ${GOPATH}/src/github.com ${GOPATH}/bin
+RUN mkdir -p ${GOPATH}/src/github.com/chllamas ${GOPATH}/bin
 
-WORKDIR /ezw_api
+WORKDIR ${GOPATH}/src/github.com/chllamas/ezw_api
 
-COPY . .
+COPY . ${GOPATH}/src/github.com/chllamas/ezw_api
 
-RUN go build -o ezw_api .
-
-EXPOSE 8080
+EXPOSE 8000
 
 CMD ["./ezw_api"]
 
