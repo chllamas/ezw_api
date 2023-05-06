@@ -1,19 +1,17 @@
 # Use the official Fedora 38 OS as the base image
-FROM fedora:38
+FROM alpine:latest
 
 # Install required packages for Go application
-RUN dnf update -y && \
-    dnf install -y git golang && \
-    dnf clean all
+RUN apk add --no-cache git go
 
 # Set the working directory to the root of the Go application
-WORKDIR /app
+WORKDIR /ezw_api
 
 # Copy the entire Go application to the container
 COPY . .
 
 # Build the Go application
-RUN go build
+RUN go build -o ezw_api .
 
 # Expose port 8080 for the Go application
 EXPOSE 8080
