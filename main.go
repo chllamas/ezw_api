@@ -166,7 +166,7 @@ func main() {
     router.POST("/login", loginHandler)
     router.POST("/signup", signupHandler)
     router.GET("/ping", authMiddleware(), handle_pong)
-    router.Run("127.0.0.1:8000")
+    router.Run("0.0.0.0:8000")
 
     log.Println("End server execution")
 }
