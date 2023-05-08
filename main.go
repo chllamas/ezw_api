@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"time"
+    "regexp"
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
@@ -17,6 +18,8 @@ var secretKey []byte
 var serverDB *sql.DB
 var getUserStmt *sql.Stmt
 var usernameExistsStmt *sql.Stmt
+var usernameSanitizer = regexp.MustCompile(`&[a-zA-Z0-9_.]{3,32}$`)
+var passwordSanitizer = regexp.MustCompile(`^[a-zA-Z0-9!@#$%^&*?]{8,128}$`)
 
 type Claims struct {
     Username string `json:"username"`
@@ -33,14 +36,12 @@ func authMiddleware() gin.HandlerFunc {
     return func(c *gin.Context) {
         tokenString := c.GetHeader("Authorization")
 
-        // Check if header present
         if tokenString == "" {
             c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header missing"})
             c.Abort()
             return
         }
 
-        // Parse JWT token
         token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
             if _,ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
                 return nil, jwt.ErrSignatureInvalid
@@ -75,7 +76,9 @@ func loginHandler(c *gin.Context) {
         return
     }
 
-    // TODO: Change to check on database for username then check that password is correct!
+    // TODO: check if user exists, then grab that user's data 
+    // TODO: hash the given password and match it to the password that's stored on DB
+    // TODO: then remove the placeholder implementation below
     if body.Username != "bhogus" || body.Password != "dev123" {
         c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
         return
@@ -104,12 +107,21 @@ func signupHandler(c *gin.Context) {
         Password string `json:"password" binding:"required"`
     }
 
+    username_param_str := "Username: 3-32 chars, alphanumerics & special chars: _."
+    password_param_str := "Password: 8-128 chars, alphanumerics & special chars: !@#$%^&*?"
+
     if err = c.ShouldBindJSON(&body); err != nil {
         c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
         return
     }
 
-    // sanitize username and password inputs
+    if !usernameSanitizer.MatchString(body.Username) {
+        c.JSON(http.StatusBadRequest, gin.H{"error": username_param_str})
+        return
+    } else if !passwordSanitizer.MatchString(body.Password) {
+        c.JSON(http.StatusBadRequest, gin.H{"error": password_param_str})
+        return
+    }
 
     var count int
     err = usernameExistsStmt.QueryRow(body.Username).Scan(&count)
@@ -121,8 +133,8 @@ func signupHandler(c *gin.Context) {
         return
     }
 
-    // now do the hashing stuff
-    // store onto servers and done!
+    // TODO: now do the hashing stuff
+    // TODO: store onto servers and done!
 
     c.JSON(http.StatusOK, gin.H{})
 }
