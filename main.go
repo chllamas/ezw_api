@@ -1,12 +1,14 @@
 package main
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"time"
-    "regexp"
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
@@ -17,6 +19,7 @@ import (
 var secretKey []byte
 var serverDB *sql.DB
 var getUserStmt *sql.Stmt
+var insertUserStmt *sql.Stmt
 var usernameExistsStmt *sql.Stmt
 var usernameSanitizer = regexp.MustCompile(`&[a-zA-Z0-9_.]{3,32}$`)
 var passwordSanitizer = regexp.MustCompile(`^[a-zA-Z0-9!@#$%^&*?]{8,128}$`)
@@ -133,14 +136,30 @@ func signupHandler(c *gin.Context) {
         return
     }
 
-    // TODO: now do the hashing stuff
-    // TODO: store onto servers and done!
+    salt := make([]byte, 32) 
+    _, err = rand.Read(salt)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "password creation failed"})
+        return
+    }
+
+    passwd := []byte(body.Password)
+    passwd = append(passwd, salt...)
+    hash := sha256.Sum256(passwd)
+    hashedPasswd := hash[:]
+
+    insertUserStmt.Exec(body.Username[:], hashedPasswd, salt)
 
     c.JSON(http.StatusOK, gin.H{})
 }
 
 func prepareStmts() error {
     var err error
+
+    insertUserStmt, err = serverDB.Prepare("INSERT INTO users (username, password, salt) VALUES (?, ?, ?)")
+    if err != nil {
+        return err
+    }
 
     getUserStmt, err = serverDB.Prepare("SELECT user_id, username, password, salt FROM users WHERE username = ?")
     if err != nil {
@@ -173,6 +192,8 @@ func main() {
         log.Fatalf("failed to prepare stmts: %v", err)
     }
     defer getUserStmt.Close()
+    defer insertUserStmt.Close()
+    defer usernameExistsStmt.Close()
 
     router := gin.Default()
     router.POST("/login", loginHandler)
