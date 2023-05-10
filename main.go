@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"reflect"
 	"regexp"
 	"time"
 
@@ -74,24 +75,42 @@ func authMiddleware() gin.HandlerFunc {
 }
 
 func loginHandler(c *gin.Context) {
-    var err
-    var storedData struct {
-        
-    }
+    var err error
     var body UserLogin
+    var storedData struct {
+        User_ID  int    `json:"userid"`
+        Username string `json:"username"`
+        Password []byte `json:"password"`
+        Salt     []byte `json:"salt"`
+    }
 
     if err = c.ShouldBindJSON(&body); err != nil {
         c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
         return
     }
 
-    // TODO: check if user exists, then grab that user's data 
-    err = getUserStmt
+    if !usernameSanitizer.MatchString(body.Username) {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "username is not valid"})
+        return
+    } else if !passwordSanitizer.MatchString(body.Password) {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "password is not valid"})
+        return
+    }
 
-    // TODO: hash the given password and match it to the password that's stored on DB
-    // TODO: then remove the placeholder implementation below
-    if body.Username != "bhogus" || body.Password != "dev123" {
-        c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
+    err = getUserStmt.QueryRow(body.Username).Scan(&storedData.User_ID, &storedData.Username, &storedData.Password, &storedData.Salt)
+    if err != nil {
+        c.JSON(http.StatusNotFound, gin.H{"error": "user does not exist"})
+        return
+    }
+
+    salt := storedData.Salt
+    passwd := []byte(body.Password)
+    passwd = append(passwd, salt...)
+    hash := sha256.Sum256(passwd)
+    hashedPasswd := hash[:]
+
+    if !reflect.DeepEqual(hashedPasswd, storedData.Password) {
+        c.JSON(http.StatusUnauthorized, gin.H{"error": "incorrect password"})
         return
     }
 
@@ -102,6 +121,7 @@ func loginHandler(c *gin.Context) {
         },
     })
 
+    var tokenString string
     tokenString, err = token.SignedString(secretKey)
     if err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
