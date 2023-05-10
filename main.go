@@ -21,8 +21,13 @@ var serverDB *sql.DB
 var getUserStmt *sql.Stmt
 var insertUserStmt *sql.Stmt
 var usernameExistsStmt *sql.Stmt
-var usernameSanitizer = regexp.MustCompile(`&[a-zA-Z0-9_.]{3,32}$`)
+var usernameSanitizer = regexp.MustCompile(`^[a-zA-Z0-9](?:[a-zA-Z0-9._]{1,30}[a-zA-Z0-9])?$`)
 var passwordSanitizer = regexp.MustCompile(`^[a-zA-Z0-9!@#$%^&*?]{8,128}$`)
+
+type UserLogin struct {
+    Username string `json:"username" binding:"required"`
+    Password string `json:"password" binding:"required"`
+}
 
 type Claims struct {
     Username string `json:"username"`
@@ -69,17 +74,20 @@ func authMiddleware() gin.HandlerFunc {
 }
 
 func loginHandler(c *gin.Context) {
-    var body struct {
-        Username string `json:"username" binding:"required"`
-        Password string `json:"password" binding:"required"`
+    var err
+    var storedData struct {
+        
     }
+    var body UserLogin
 
-    if err := c.ShouldBindJSON(&body); err != nil {
+    if err = c.ShouldBindJSON(&body); err != nil {
         c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
         return
     }
 
     // TODO: check if user exists, then grab that user's data 
+    err = getUserStmt
+
     // TODO: hash the given password and match it to the password that's stored on DB
     // TODO: then remove the placeholder implementation below
     if body.Username != "bhogus" || body.Password != "dev123" {
@@ -94,7 +102,7 @@ func loginHandler(c *gin.Context) {
         },
     })
 
-    tokenString, err := token.SignedString(secretKey)
+    tokenString, err = token.SignedString(secretKey)
     if err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
         return
@@ -105,18 +113,15 @@ func loginHandler(c *gin.Context) {
 
 func signupHandler(c *gin.Context) {
     var err error
-    var body struct {
-        Username string `json:"username" binding:"required"`
-        Password string `json:"password" binding:"required"`
-    }
-
-    username_param_str := "Username: 3-32 chars, alphanumerics & special chars: _."
-    password_param_str := "Password: 8-128 chars, alphanumerics & special chars: !@#$%^&*?"
+    var body UserLogin
 
     if err = c.ShouldBindJSON(&body); err != nil {
         c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
         return
     }
+    
+    username_param_str := "Username: 3-32 chars, alphanumerics & special chars: _."
+    password_param_str := "Password: 8-128 chars, alphanumerics & special chars: !@#$%^&*?"
 
     if !usernameSanitizer.MatchString(body.Username) {
         c.JSON(http.StatusBadRequest, gin.H{"error": username_param_str})
@@ -148,9 +153,14 @@ func signupHandler(c *gin.Context) {
     hash := sha256.Sum256(passwd)
     hashedPasswd := hash[:]
 
-    insertUserStmt.Exec(body.Username[:], hashedPasswd, salt)
+    _, err = insertUserStmt.Exec(body.Username[:], hashedPasswd, salt)
 
-    c.JSON(http.StatusOK, gin.H{})
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    } else {
+        c.JSON(http.StatusOK, gin.H{})
+    }
 }
 
 func prepareStmts() error {
