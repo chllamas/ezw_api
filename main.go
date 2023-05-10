@@ -13,42 +13,39 @@ import (
 	_ "github.com/joho/godotenv/autoload"
 )
 
-var serverDB *sql.DB
-var getUserStmt *sql.Stmt
-var insertUserStmt *sql.Stmt
-var usernameExistsStmt *sql.Stmt
-var packageStmts map[string]*sql.Stmt
-
 func handle_pong(c *gin.Context) {
     c.JSON(http.StatusOK, gin.H{
         "message": "pong",
     })
 }
 
-func prepareStmts() error {
+func prepareStmts(db *sql.DB) (map[string]*sql.Stmt, error) {
     var err error
+    ret := make(map[string]*sql.Stmt, 3)
 
-    insertUserStmt, err = serverDB.Prepare("INSERT INTO users (username, password, salt) VALUES (?, ?, ?)")
+    ret["insertUserStmt"], err = db.Prepare("INSERT INTO users (username, password, salt) VALUES (?, ?, ?)")
     if err != nil {
-        return err
+        return nil, err
     }
 
-    getUserStmt, err = serverDB.Prepare("SELECT user_id, username, password, salt FROM users WHERE username = ?")
+    ret["getUserStmt"], err = db.Prepare("SELECT user_id, username, password, salt FROM users WHERE username = ?")
     if err != nil {
-        return err
+        return nil, err
     }
 
-    usernameExistsStmt, err = serverDB.Prepare("SELECT COUNT(*) FROM users WHERE username = ?")
+    ret["usernameExistsStmt"], err = db.Prepare("SELECT COUNT(*) FROM users WHERE username = ?")
     if err != nil {
-        return err
+        return nil, err
     }
 
-    return nil
+    return ret, nil
 }
 
 func main() {
     var err error
+    var db *sql.DB
     var secretKey []byte
+    var stmts map[string]*sql.Stmt
 
     if skStr, ok := os.LookupEnv("JWT_SECRET_KEY"); ok {
         secretKey = []byte(skStr)
@@ -56,27 +53,23 @@ func main() {
         log.Fatalf("Secret key is not set")
     }
 
-    if serverDB, err = sql.Open("mysql", os.Getenv("DSN")); err != nil {
+    if db, err = sql.Open("mysql", os.Getenv("DSN")); err != nil {
         log.Fatalf("failed to connect: %v", err)
     }
-    defer serverDB.Close()
+    defer db.Close()
 
-    if err = prepareStmts(); err != nil {
+    if stmts, err = prepareStmts(db); err != nil {
         log.Fatalf("failed to prepare stmts: %v", err)
     }
-    defer getUserStmt.Close()
-    defer insertUserStmt.Close()
-    defer usernameExistsStmt.Close()
-
-    packageStmts = map[string]*sql.Stmt{
-        "getUserStmt":getUserStmt,
-        "insertUserStmt":insertUserStmt,
-        "usernameExistsStmt":usernameExistsStmt,
-    }
+    defer func(){
+        for _,v := range stmts {
+            v.Close()
+        }
+    }()
 
     router := gin.Default()
-    router.POST("/login", auth.LoginHandler(secretKey, &packageStmts))
-    router.POST("/signup", auth.SignupHandler(secretKey, &packageStmts))
+    router.POST("/login", auth.LoginHandler(secretKey, &stmts))
+    router.POST("/signup", auth.SignupHandler(secretKey, &stmts))
     router.GET("/ping", auth.AuthMiddleware(secretKey), handle_pong)
     router.Run("0.0.0.0:8000")
 
