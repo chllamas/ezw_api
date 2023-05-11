@@ -1,14 +1,14 @@
 package db
 
 import (
-    "regexp"
-    "gorm.io/gorm"
-    "gorm.io/driver/mysql"
+	"errors"
+	"regexp"
 
-    . "github.com/chllamas/go-utils"
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
 )
 
-var db *gorm.DB
+var database *gorm.DB
 var secretKey string
 var usernameSanitizer = regexp.MustCompile(`^[a-zA-Z0-9](?:[a-zA-Z0-9._]{1,30}[a-zA-Z0-9])?$`)
 var passwordSanitizer = regexp.MustCompile(`^[a-zA-Z0-9!@#$%^&*?]{8,128}$`)
@@ -27,14 +27,22 @@ type User struct {
     Salt        [32]byte
 }
 
-func Init(secretKey string) error {
-    var err error
-    db, err = gorm.Open(mysql.New(mysql.Config{
-        DSN: secretKey,
-        DefaultStringSize: 256,
-    }), &gorm.Config{})
+func TODO() error {
+    return errors.New("TODO: function not yet implemented")
+}
 
-    return err
+func Init(dsn string, sk string) {
+    var err error
+    secretKey = sk
+    database, err = gorm.Open(mysql.Open(dsn), &gorm.Config{})
+    if err != nil {
+        panic("failed to connect to database")
+    }
+}
+
+func Close() {
+    dbInstance, _ := database.DB()
+    dbInstance.Close()
 }
 
 func GetSecretKey() string {
@@ -47,11 +55,6 @@ func ValidateUsername(u string) bool {
 
 func ValidatePassword(p string) bool {
     return passwordSanitizer.MatchString(p)
-}
-
-func Close() {
-    dbInstance, _ := db.DB()
-    dbInstance.Close()
 }
 
 func UsernameExists(username string) error {

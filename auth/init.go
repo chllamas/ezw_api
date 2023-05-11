@@ -23,7 +23,7 @@ type HashTuple struct {
     Salt [32]byte
 }
 
-func AuthMiddleware(secretKey string) gin.HandlerFunc {
+func AuthMiddleware() gin.HandlerFunc {
     return func(c *gin.Context) {
         tokenString := c.GetHeader("Authorization")
 
@@ -37,7 +37,7 @@ func AuthMiddleware(secretKey string) gin.HandlerFunc {
             if _,ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
                 return nil, jwt.ErrSignatureInvalid
             }
-            return secretKey, nil
+            return db.GetSecretKey(), nil
         })
 
         if err != nil {

@@ -19,14 +19,17 @@ func handle_pong(c *gin.Context) {
 }
 
 func main() {
-    secretKey, ok := os.LookupEnv("JWT_SECRET_KEY")
+    dsn, ok := os.LookupEnv("DSN")
     if !ok {
-        log.Fatalf("Secret key is not set")
+        log.Fatalf("DSN not set")
     }
 
-    if err := db.Init(secretKey); err != nil {
-        log.Fatalf("%v", err.Error())
+    secretKey, ok := os.LookupEnv("JWT_SECRET_KEY")
+    if !ok {
+        log.Fatalf("JWT secret key is not set")
     }
+
+    db.Init(dsn, secretKey)
     defer db.Close()
 
     router := gin.Default()
