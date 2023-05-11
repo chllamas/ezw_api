@@ -3,30 +3,27 @@ package auth
 import (
 	"crypto/rand"
 	"crypto/sha256"
-	"database/sql"
 	"net/http"
 	"reflect"
-	"regexp"
 	"time"
+
+	"github.com/chllamas/ezw_api/db"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt"
 )
-
-var usernameSanitizer = regexp.MustCompile(`^[a-zA-Z0-9](?:[a-zA-Z0-9._]{1,30}[a-zA-Z0-9])?$`)
-var passwordSanitizer = regexp.MustCompile(`^[a-zA-Z0-9!@#$%^&*?]{8,128}$`)
 
 type Claims struct {
     Username string `json:"username"`
     jwt.StandardClaims
 }
 
-type UserLogin struct {
-    Username string `json:"username" binding:"required"`
-    Password string `json:"password" binding:"required"`
+type HashTuple struct {
+    Hash [32]byte
+    Salt [32]byte
 }
 
-func AuthMiddleware(secretKey []byte) gin.HandlerFunc {
+func AuthMiddleware(secretKey string) gin.HandlerFunc {
     return func(c *gin.Context) {
         tokenString := c.GetHeader("Authorization")
 
@@ -59,115 +56,109 @@ func AuthMiddleware(secretKey []byte) gin.HandlerFunc {
     }
 }
 
-func LoginHandler(secretKey []byte, stmts *map[string]*sql.Stmt) gin.HandlerFunc {
-    return func(c *gin.Context) {
-        var err error
-        var body UserLogin
-        var storedData struct {
-            User_ID  int    `json:"userid"`
-            Username string `json:"username"`
-            Password []byte `json:"password"`
-            Salt     []byte `json:"salt"`
+func HashPassword(p string, s *[32]byte) (*HashTuple, error) {
+    var salt [32]byte
+    if s == nil {
+        if _, err := rand.Read(salt[:]); err != nil {
+            return nil, err
         }
+    } else {
+        salt = *s
+    }
 
-        if err = c.ShouldBindJSON(&body); err != nil {
-            c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-            return
-        }
+    passwd := append([]byte(p), salt[:]...)
+    hash := sha256.Sum256(passwd)
 
-        if !usernameSanitizer.MatchString(body.Username) {
-            c.JSON(http.StatusBadRequest, gin.H{"error": "username is not valid"})
-            return
-        } else if !passwordSanitizer.MatchString(body.Password) {
-            c.JSON(http.StatusBadRequest, gin.H{"error": "password is not valid"})
-            return
-        }
+    ret := HashTuple{
+        Hash: hash,
+        Salt: salt,
+    }
 
-        err = (*stmts)["getUserStmt"].QueryRow(body.Username).Scan(&storedData.User_ID, &storedData.Username, &storedData.Password, &storedData.Salt)
-        if err != nil {
-            c.JSON(http.StatusNotFound, gin.H{"error": "user does not exist"})
-            return
-        }
+    return &ret, nil
+}
 
-        salt := storedData.Salt
-        passwd := []byte(body.Password)
-        passwd = append(passwd, salt...)
-        hash := sha256.Sum256(passwd)
-        hashedPasswd := hash[:]
+func LoginHandler(c *gin.Context) {
+    var body db.UserLogin
+    var userData db.User
 
-        if !reflect.DeepEqual(hashedPasswd, storedData.Password) {
-            c.JSON(http.StatusUnauthorized, gin.H{"error": "incorrect password"})
-            return
-        }
+    if err := c.ShouldBindJSON(&body); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
 
-        token := jwt.NewWithClaims(jwt.SigningMethodHS256, &Claims{
-            Username: body.Username,
-            StandardClaims: jwt.StandardClaims{
-                ExpiresAt: time.Now().Add(time.Hour * 24).Unix(),
-            },
-        })
+    if !db.ValidateUsername(body.Username) {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "input not valid"})
+        return
+    } else if !db.ValidatePassword(body.Password) {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "input not valid"})
+        return
+    }
 
-        var tokenString string
-        tokenString, err = token.SignedString(secretKey)
-        if err != nil {
-            c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
-            return
-        }
+    if err := db.ReadUser(body.Username, &userData); err != nil {
+        c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+        return
+    }
 
+    if hash, err := HashPassword(body.Password, &userData.Salt); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    } else if !reflect.DeepEqual(hash.Hash, userData.Hash) {
+        c.JSON(http.StatusUnauthorized, gin.H{"error": "incorrect password"})
+        return
+    }
+
+    token := jwt.NewWithClaims(jwt.SigningMethodHS256, &Claims{
+        Username: body.Username,
+        StandardClaims: jwt.StandardClaims{
+            ExpiresAt: time.Now().Add(time.Hour * 24).Unix(),
+        },
+    })
+
+    if tokenString, err := token.SignedString(db.GetSecretKey()); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+    } else {
         c.JSON(http.StatusOK, gin.H{"token": tokenString})
     }
 }
 
-func SignupHandler(secretKey []byte, stmts *map[string]*sql.Stmt) gin.HandlerFunc {
-    return func(c *gin.Context) {
-        var err error
-        var body UserLogin
+func SignupHandler(c *gin.Context) {
+    var body db.UserLogin
 
-        if err = c.ShouldBindJSON(&body); err != nil {
-            c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-            return
-        }
-
-        username_param_str := "Username: 3-32 chars, alphanumerics & special chars: _."
-        password_param_str := "Password: 8-128 chars, alphanumerics & special chars: !@#$%^&*?"
-
-        if !usernameSanitizer.MatchString(body.Username) {
-            c.JSON(http.StatusBadRequest, gin.H{"error": username_param_str})
-            return
-        } else if !passwordSanitizer.MatchString(body.Password) {
-            c.JSON(http.StatusBadRequest, gin.H{"error": password_param_str})
-            return
-        }
-
-        var count int
-        err = (*stmts)["usernameExistsStmt"].QueryRow(body.Username).Scan(&count)
-        if err != nil {
-            c.JSON(http.StatusInternalServerError, gin.H{"error": err})
-            return
-        } else if count > 0 {
-            c.JSON(http.StatusConflict, gin.H{"error": "username already exists"})
-            return
-        }
-
-        salt := make([]byte, 32) 
-        _, err = rand.Read(salt)
-        if err != nil {
-            c.JSON(http.StatusInternalServerError, gin.H{"error": "password creation failed"})
-            return
-        }
-
-        passwd := []byte(body.Password)
-        passwd = append(passwd, salt...)
-        hash := sha256.Sum256(passwd)
-        hashedPasswd := hash[:]
-
-        _, err = (*stmts)["insertUserStmt"].Exec(body.Username[:], hashedPasswd, salt)
-
-        if err != nil {
-            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-            return
-        } else {
-            c.JSON(http.StatusOK, gin.H{})
-        }
+    if err := c.ShouldBindJSON(&body); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
     }
+
+    if !db.ValidateUsername(body.Username) {
+        c.JSON(http.StatusBadRequest, gin.H{"error": db.UsernameParameterString})
+        return
+    } else if !db.ValidatePassword(body.Password) {
+        c.JSON(http.StatusBadRequest, gin.H{"error": db.PasswordParameterString})
+        return
+    }
+
+    if err := db.UsernameExists(body.Username); err != nil {
+        c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+        return
+    }
+
+    salt := make([]byte, 32) 
+    if _, err := rand.Read(salt); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "password creation failed"})
+        return
+    }
+
+    passwd := []byte(body.Password)
+    passwd = append(passwd, salt...)
+    hash := sha256.Sum256(passwd)
+    hashedPasswd := hash[:]
+
+
+    if err := db.CreateUser(body.Username, hashedPasswd, salt); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+
+    // TODO: Maybe return a token for them since they are now logged in when creating account?
+    c.JSON(http.StatusOK, gin.H{})
 }
