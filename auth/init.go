@@ -19,8 +19,8 @@ type Claims struct {
 }
 
 type HashTuple struct {
-    Hash [32]byte
-    Salt [32]byte
+    Hash []byte
+    Salt []byte
 }
 
 func AuthMiddleware() gin.HandlerFunc {
@@ -56,22 +56,22 @@ func AuthMiddleware() gin.HandlerFunc {
     }
 }
 
-func HashPassword(p string, s *[32]byte) (*HashTuple, error) {
-    var salt [32]byte
-    if s == nil {
-        if _, err := rand.Read(salt[:]); err != nil {
+/* Generates hash for password with salt given or a new random salt if nil given */
+func HashPassword(p string, salt *[]byte) (*HashTuple, error) {
+    if salt == nil {
+        s := make([]byte, 32)
+        if _, err := rand.Read(s); err != nil {
             return nil, err
         }
-    } else {
-        salt = *s
-    }
+        salt = &s
+    } 
 
-    passwd := append([]byte(p), salt[:]...)
+    passwd := append([]byte(p), *salt...)
     hash := sha256.Sum256(passwd)
 
     ret := HashTuple{
-        Hash: hash,
-        Salt: salt,
+        Hash: hash[:],
+        Salt: *salt,
     }
 
     return &ret, nil
@@ -137,24 +137,19 @@ func SignupHandler(c *gin.Context) {
         return
     }
 
-    if err := db.UsernameExists(body.Username); err != nil {
-        c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+    var user db.User
+    if hash, err := HashPassword(body.Password, nil); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
         return
+    } else {
+        user = db.User{
+            Username: body.Username,
+            Hash: hash.Hash,
+            Salt: hash.Salt,
+        }
     }
 
-    salt := make([]byte, 32) 
-    if _, err := rand.Read(salt); err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "password creation failed"})
-        return
-    }
-
-    passwd := []byte(body.Password)
-    passwd = append(passwd, salt...)
-    hash := sha256.Sum256(passwd)
-    hashedPasswd := hash[:]
-
-
-    if err := db.CreateUser(body.Username, hashedPasswd, salt); err != nil {
+    if err := db.CreateUser(&user); err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
         return
     }

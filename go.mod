@@ -3,7 +3,6 @@ module github.com/chllamas/ezw_api
 go 1.20
 
 require (
-	github.com/chllamas/go-utils v0.0.0-20230511004739-a99bd8abbdc4
 	github.com/gin-gonic/gin v1.9.0
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/joho/godotenv v1.5.1

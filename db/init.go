@@ -4,11 +4,11 @@ import (
 	"errors"
 	"regexp"
 
+    "gorm.io/gorm"
 	"gorm.io/driver/mysql"
-	"gorm.io/gorm"
 )
 
-var secretKey string
+var secretKey []byte
 var database *gorm.DB = nil
 var usernameSanitizer = regexp.MustCompile(`^[a-zA-Z0-9](?:[a-zA-Z0-9._]{1,30}[a-zA-Z0-9])?$`)
 var passwordSanitizer = regexp.MustCompile(`^[a-zA-Z0-9!@#$%^&*?]{8,128}$`)
@@ -23,8 +23,8 @@ type UserLogin struct {
 
 type User struct {
     Username    string      `gorm:"type:varchar(32);primaryKey"`
-    Hash        [32]byte    `gorm:"type:binary(32);not null"`
-    Salt        [32]byte    `gorm:"type:binary(32);not null"`
+    Hash        []byte    `gorm:"type:BLOB(32);not null"`
+    Salt        []byte    `gorm:"type:BLOB(32);not null"`
 }
 
 func TODO() error {
@@ -36,7 +36,7 @@ func Init(dsn string, sk string) {
         panic("Datbase init can only be called once!")
     }
     var err error
-    secretKey = sk
+    secretKey = []byte(sk)
     database, err = gorm.Open(mysql.Open(dsn), &gorm.Config{})
     if err != nil {
         panic("failed to connect to database")
@@ -49,7 +49,7 @@ func Close() {
     dbInstance.Close()
 }
 
-func GetSecretKey() string {
+func GetSecretKey() []byte {
     return secretKey
 }
 
@@ -61,16 +61,18 @@ func ValidatePassword(p string) bool {
     return passwordSanitizer.MatchString(p)
 }
 
-func UsernameExists(username string) error {
-    return TODO()
-}
-
-func CreateUser(username string, hash []byte, salt []byte) error {
-    return TODO()
+func CreateUser(u *User) error {
+    if result := database.Create(u); result.Error != nil {
+        if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+            return gorm.ErrRecordNotFound
+        }
+        return result.Error
+    }
+    return nil
 }
 
 func ReadUser(username string, body *User) error {
-    if err := database.First(body, "username = ?", username).Error; err != nil {
+    if err := database.Take(body, "username = ?", username).Error; err != nil {
         return err
     }
     return nil
