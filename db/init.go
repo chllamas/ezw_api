@@ -64,7 +64,7 @@ func ValidatePassword(p string) bool {
 func CreateUser(u *User) error {
     if result := database.Create(u); result.Error != nil {
         if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-            return gorm.ErrRecordNotFound
+            return errors.New("username already exists")
         }
         return result.Error
     }
