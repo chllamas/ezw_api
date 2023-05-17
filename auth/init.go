@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"net/http"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/chllamas/ezw_api/db"
@@ -31,6 +32,10 @@ func AuthMiddleware() gin.HandlerFunc {
             c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header missing"})
             c.Abort()
             return
+        }
+
+        if strings.HasPrefix(tokenString, "Bearer ") {
+            tokenString = tokenString[7:]
         }
 
         token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
