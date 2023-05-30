@@ -139,3 +139,8 @@ func ReadAllTasks(username string) ([]TaskHalfResponse, error) {
     }
     return tasks, nil
 }
+
+func UpdateTask(username string, id int, t *TaskRequest) error {
+    TODO()
+    return errors.New("todo")
+}
