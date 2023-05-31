@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-    "errors"
 
 	"github.com/chllamas/ezw_api/auth"
 	"github.com/chllamas/ezw_api/db"
@@ -14,128 +13,113 @@ import (
 	_ "github.com/joho/godotenv/autoload"
 )
 
-func extractUsername(c *gin.Context) (string, error) {
-    usernameRaw, exists := c.Get("username")
-    if !exists {
-        return "", errors.New("Couldn't find username in JSON")
-    }
-    
-    username, ok := usernameRaw.(string)
-    if !ok {
-        return "", errors.New("failed to parse username to string")
-    }
+/* Returns username, id values if they exist, nil otherwise; it's up to caller to handle if a missing value results in an error */
+func getUserInfo(c *gin.Context) (*string, *int) {
+    var username *string
+    var id *int
 
-    return username, nil
-}
-
-func handleGetTasks(c *gin.Context) {
-    username, err := extractUsername(c)
-    if err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
+    if usernameRaw, exists := c.Get("username"); exists {
+        if u, ok := usernameRaw.(string); ok {
+            username = &u
+        }
     }
 
     if idStr := c.Param("id"); idStr != "" {
-        id, err := strconv.Atoi(idStr)
-        if err != nil {
-            c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
-            return
+        if i, err := strconv.Atoi(idStr); err == nil {
+            id = &i
         }
-
-        ret, err := db.ReadTask(username, id)
-        if err != nil {
-            c.JSON(http.StatusNotFound, gin.H{"error": "could not find task with given id"})
-            return
-        }
-        
-        c.JSON(http.StatusOK, gin.H{"results": *ret})
-        return
     }
 
-    ret, err := db.ReadAllTasks(username)
-    if err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
-    }
-
-    c.JSON(http.StatusOK, gin.H{"results": ret})
+    return username, id
 }
 
 func handleNewTasks(c *gin.Context) {
-    username, err := extractUsername(c)
-    if err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+    username, _ := getUserInfo(c)
+    if username == nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Missing user info"})
         return
     }
 
-    var body db.TaskRequest
+    var body db.CreateTaskRequest
     if err := c.ShouldBindJSON(&body); err != nil {
         c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
         return
     }
 
-    if err := db.CreateTask(username, &body); err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+    if err := db.CreateTask(*username, &body); err != nil {
+        c.JSON(err.HttpStatus(), gin.H{"error": err.Error()})
         return
     }
 
     c.JSON(http.StatusOK, gin.H{})
 }
 
-func handleEditTasks(c *gin.Context) {
-    idStr := c.Param("id")
-
-    if id, err := strconv.Atoi(idStr); err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+func handleGetTasks(c *gin.Context) {
+    username, id := getUserInfo(c)
+    if username == nil || id == nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Missing user info"})
         return
-    } else {
-        username, err := extractUsername(c)
-        if err != nil {
-            c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-            return
-        }
-
-        var body struct {
-            NewTitle            string  `json:"new_title"`
-            NewContents         string  `json:"new_contents"`
-            ToggleCompleted     bool    `json:"toggle_completed"`
-        }
-
-        if err := c.ShouldBindJSON(&body); err != nil {
-            c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-            return
-        }
-        
-        var request db.TaskRequest
-        task, err := db.ReadTask(username, id)
-        if err != nil {
-            c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-            return
-        }
-
-        if body.NewTitle == "" {
-            request.Title = task.Title
-        } else {
-            request.Title = body.NewTitle
-        }
-
-        if body.NewContents == "" {
-            request.Contents = task.Contents
-        } else {
-            request.Contents = body.NewContents
-        }
-
-        if body.ToggleCompleted {
-            request.Completed = !task.Completed
-        }
-            
-        if err := db.UpdateTask(username, id, &request); err != nil {
-            c.JSON(http.StatusNotFound, gin.H{"err": err.Error()})
-            return
-        }
-
-        c.JSON(http.StatusOK, gin.H{})
     }
+
+    ret, err := db.ReadTask(*username, *id)
+    if err != nil {
+        c.JSON(err.HttpStatus(), gin.H{"error": err.Error()})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{"results": ret})
+}
+
+func handleGetAllTasks(c *gin.Context) {
+    username, _ := getUserInfo(c)
+    if username == nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Missing user info"})
+        return
+    }
+
+    ret, err := db.ReadAllTasks(*username)
+    if err != nil {
+        c.JSON(err.HttpStatus(), gin.H{"error": err.Error()})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{"results": ret})
+}
+
+func handleEditTasks(c *gin.Context) {
+    username, id := getUserInfo(c)
+    if username == nil || id == nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Missing user info"})
+        return
+    }
+
+    var body db.UpdateTaskRequest
+    if err := c.ShouldBindJSON(&body); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    if err := db.UpdateTask(*username, *id, &body); err != nil {
+        c.JSON(err.HttpStatus(), gin.H{"error": err.Error()})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{})
+}
+
+func handleDeleteTasks(c *gin.Context) {
+    username, id := getUserInfo(c)
+    if username == nil || id == nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Missing user info"})
+        return
+    }
+
+    if err := db.DeleteTask(*username, *id); err != nil {
+        c.JSON(err.HttpStatus(), gin.H{"error": err.Error()})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{})
 }
 
 func main() {
@@ -153,15 +137,16 @@ func main() {
     defer db.Close()
 
     router := gin.Default()
+    router.POST("/login", auth.LoginHandler)
+    router.POST("/signup", auth.SignupHandler)
+    router.POST("/tasks", auth.AuthMiddleware(), handleNewTasks)
+    router.GET("/tasks", auth.AuthMiddleware(), handleGetAllTasks)
+    router.GET("/tasks/:id", auth.AuthMiddleware(), handleGetTasks)
+    router.PUT("/tasks/:id", auth.AuthMiddleware(), handleEditTasks)
+    router.DELETE("/tasks/:id", auth.AuthMiddleware(), handleDeleteTasks)
     router.GET("/ping", auth.AuthMiddleware(), func(c *gin.Context) {
         c.JSON(http.StatusOK, gin.H{"message": "pong"})
     })
-    router.POST("/login", auth.LoginHandler)
-    router.POST("/signup", auth.SignupHandler)
-    router.PUT("/tasks/:id", auth.AuthMiddleware(), handleEditTasks)
-    router.GET("/tasks/:id", auth.AuthMiddleware(), handleGetTasks)
-    router.GET("/tasks", auth.AuthMiddleware(), handleGetTasks)
-    router.POST("/tasks", auth.AuthMiddleware(), handleNewTasks)
     router.Run("0.0.0.0:8000")
 }
 

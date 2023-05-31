@@ -1,11 +1,12 @@
 package db
 
 import (
-	"errors"
+	"net/http"
 	"regexp"
+	"time"
 
-    "gorm.io/gorm"
 	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
 )
 
 var secretKey []byte
@@ -16,10 +17,16 @@ var passwordSanitizer = regexp.MustCompile(`^[a-zA-Z0-9!@#$%^&*?]{8,128}$`)
 const UsernameParameterString = "Username: 3-32 chars, alphanumerics & special chars: _."
 const PasswordParameterString = "Password: 8-128 chars, alphanumerics & special chars: !@#$%^&*?"
 
-type TaskRequest struct {
+type UpdateTaskRequest struct {
+    NewTitle            string  `json:"new_title"`
+    NewContents         string  `json:"new_contents"`
+    ToggleCompleted     bool    `json:"toggle_completed"`
+}
+
+type CreateTaskRequest struct {
     Title       string  `json:"title" binding:"required"`
-    Completed   bool    `json:"completed"`
     Contents    string  `json:"contents"`
+    Completed   bool    `json:"completed"`
 }
 
 type TaskHalfResponse struct {
@@ -48,14 +55,28 @@ type User struct {
 
 type Task struct {
     gorm.Model
-    UserID      string      `gorm:"type:varchar(32);not null"`
+    CreatedAt   time.Time   `gorm:"<-:create"`
+    UserID      string      `gorm:"type:varchar(32);not null;<-:create"`
     Title       string      `gorm:"type:varchar(128);not null"`
     Completed   bool        `gorm:"type:bool;not null"`
     Contents    string      `gorm:"type:longtext;not null"`
 }
 
-func TODO() error {
-    return errors.New("TODO: function not yet implemented")
+type APIError struct {
+    status      int
+    message     string
+}
+
+func (e *APIError) Error() string {
+    return e.message
+}
+
+func (e *APIError) HttpStatus() int {
+    return e.status
+}
+
+func TODO() *APIError {
+    return &APIError{ http.StatusNotImplemented, "Not implemented" }
 }
 
 func Init(dsn string, sk string) {
@@ -88,30 +109,33 @@ func ValidatePassword(p string) bool {
     return passwordSanitizer.MatchString(p)
 }
 
-func CreateUser(u *User) error {
+func CreateUser(u *User) *APIError {
     if result := database.Create(u); result.Error != nil {
-        return result.Error
+        return &APIError{ http.StatusFound, "Couldn't create user" }
     }
     return nil
 }
 
-func ReadUser(username string, body *User) error {
+func ReadUser(username string, body *User) *APIError {
     if result := database.Take(body, "username = ?", username); result.Error != nil {
-        return result.Error
+        return &APIError{ http.StatusNotFound, "Couldn't find user" }
     }
     return nil
 }
 
-func UpdateUser(username string, new_hash []byte, new_salt []byte) error {
+func UpdateUser(username string, new_hash []byte, new_salt []byte) *APIError {
     return TODO()
 }
 
-func DeleteUser(username string) error {
+func DeleteUser(username string) *APIError {
     return TODO()
 }
 
-func CreateTask(username string, t *TaskRequest) error {
-    // create a task obj
+func defaultServerError() *APIError {
+    return &APIError{ http.StatusInternalServerError, "Couldn't process request" }
+}
+
+func CreateTask(username string, t *CreateTaskRequest) *APIError {
     task := Task {
         UserID: username,
         Title: t.Title,
@@ -119,28 +143,65 @@ func CreateTask(username string, t *TaskRequest) error {
         Contents: t.Contents,
     }
     if result := database.Create(&task); result.Error != nil {
-        return result.Error
+        return defaultServerError()
     }
     return nil
 }
 
-func ReadTask(username string, id int) (*TaskFullResponse, error) {
+func ReadTask(username string, id int) (*TaskFullResponse, *APIError) {
     var task TaskFullResponse
-    if result := database.Table("tasks").Select("id, title, completed, contents").Where("user_id = ? AND id = ?", username, id).First(&task); result.Error != nil {
-        return nil, result.Error
+    if result := database.Raw("SELECT id, title, contents, completed FROM tasks WHERE user_id = ? AND id = ? AND deleted_at IS NULL", username, id).Scan(&task); result.Error != nil {
+        return nil, defaultServerError()
+    } else if result.RowsAffected == 0 {
+        return nil, &APIError{ http.StatusNotFound, "Couldn't find task" }
     }
     return &task, nil
 }
 
-func ReadAllTasks(username string) ([]TaskHalfResponse, error) {
-    var tasks []TaskHalfResponse
-    if result := database.Table("tasks").Select("id, title, completed").Where("user_id = ?", username).Find(&tasks); result.Error != nil {
-        return nil, result.Error
+func ReadAllTasks(username string) ([]TaskHalfResponse, *APIError) {
+    tasks := []TaskHalfResponse{}
+    if err := database.Raw("SELECT id, title, completed FROM tasks WHERE user_id = ? AND deleted_at IS NULL", username).Find(&tasks).Error; err != nil {
+        return nil, defaultServerError()
     }
     return tasks, nil
 }
 
-func UpdateTask(username string, id int, t *TaskRequest) error {
-    TODO()
-    return errors.New("todo")
+func UpdateTask(username string, id int, t *UpdateTaskRequest) *APIError {
+    var task Task
+    if result := database.Raw("SELECT id, title, contents, completed FROM tasks WHERE user_id = ? AND id = ? AND deleted_at IS NULL", username, id).Scan(&task); result.Error != nil {
+        return defaultServerError()
+    } else if result.RowsAffected == 0 {
+        // should we just create the task for them if it wasn't found?
+        return &APIError{ http.StatusNotFound, "Couldn't find task" }
+    }
+
+    if t.NewTitle != "" {
+        task.Title = t.NewTitle
+    }
+
+    if t.NewContents != "" {
+        task.Contents = t.NewContents
+    }
+
+    if t.ToggleCompleted {
+        task.Completed = !task.Completed
+    }
+
+    task.UpdatedAt = time.Now()
+
+    if result := database.Save(&task); result.Error != nil {
+        return defaultServerError()
+    }
+
+    return nil
+}
+
+func DeleteTask(username string, id int) *APIError {
+    if results := database.Where("user_id = ? AND id = ?", username, id).Delete(&Task{}); results.Error != nil {
+        return defaultServerError()
+    } else if results.RowsAffected == 0 {
+        return &APIError{ http.StatusNotFound, "Couldn't find task to delete" }
+    }
+
+    return nil
 }
