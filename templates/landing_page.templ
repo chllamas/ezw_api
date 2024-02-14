@@ -1,5 +1,22 @@
 package templates
 
-func Landing() {
-    return <div>Welcome to the home page!</div>
+templ landingContent() {
+    <div class="container mt-5">
+        <div class="row">
+            <div class="col-md-6">
+                <h1>Get EZ Tasks Done Today!</h1>
+                <p>The most difficult part of the process is getting started.  With EZW, that's the easy part.</p>
+            </div>
+            <div class="col-md-6">
+                <img src="https://via.placeholder.com/400" alt="Easy tasks" class="img-fluid" />
+            </div>
+        </div>
+    </div>
+}
+
+templ LandingPage(theme string, title string) {
+    <html>
+        @headerComponent(title)
+        @contentComponent(theme, landingContent())
+    </html>
 }

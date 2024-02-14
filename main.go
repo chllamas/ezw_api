@@ -6,12 +6,15 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/a-h/templ/examples/integration-gin/gintemplrenderer"
 	"github.com/chllamas/ezw_api/auth"
 	"github.com/chllamas/ezw_api/db"
+	"github.com/chllamas/ezw_api/templates"
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/joho/godotenv/autoload"
 )
+
 
 /* Returns username, id values if they exist, nil otherwise; it's up to caller to handle if a missing value results in an error */
 func getUserInfo(c *gin.Context) (*string, *int) {
@@ -122,6 +125,14 @@ func handleDeleteTasks(c *gin.Context) {
     c.JSON(http.StatusOK, gin.H{})
 }
 
+func handleLandingPage(c *gin.Context) {
+    c.HTML(http.StatusOK, "", templates.LandingPage("dark", "EZW - The Task Manager"))
+}
+
+func handleLoginPage(c *gin.Context) {
+    c.HTML(http.StatusOK, "", templates.TempPage("login"))
+}
+
 func main() {
     dsn, ok := os.LookupEnv("DSN")
     if !ok {
@@ -137,16 +148,23 @@ func main() {
     defer db.Close()
 
     router := gin.Default()
-    router.POST("/login", auth.LoginHandler)
-    router.POST("/signup", auth.SignupHandler)
-    router.POST("/tasks", auth.AuthMiddleware(), handleNewTasks)
-    router.GET("/tasks", auth.AuthMiddleware(), handleGetAllTasks)
-    router.GET("/tasks/:id", auth.AuthMiddleware(), handleGetTasks)
-    router.PUT("/tasks/:id", auth.AuthMiddleware(), handleEditTasks)
-    router.DELETE("/tasks/:id", auth.AuthMiddleware(), handleDeleteTasks)
-    router.GET("/ping", auth.AuthMiddleware(), func(c *gin.Context) {
+    router.HTMLRender = gintemplrenderer.Default
+
+    router.GET("/", handleLandingPage)
+    router.GET("/login", handleLoginPage)
+
+    router.POST("/api/login", auth.LoginHandler)
+    router.POST("/api/signup", auth.SignupHandler)
+
+    router.POST("/api/tasks", auth.AuthMiddleware(), handleNewTasks)
+    router.GET("/api/tasks", auth.AuthMiddleware(), handleGetAllTasks)
+    router.GET("/api/tasks/:id", auth.AuthMiddleware(), handleGetTasks)
+    router.PUT("/api/tasks/:id", auth.AuthMiddleware(), handleEditTasks)
+    router.DELETE("/api/tasks/:id", auth.AuthMiddleware(), handleDeleteTasks)
+
+    router.GET("/api/ping", auth.AuthMiddleware(), func(c *gin.Context) {
         c.JSON(http.StatusOK, gin.H{"message": "pong"})
     })
-    router.Run("0.0.0.0:8000")
+    router.Run(":8080")
 }
 
