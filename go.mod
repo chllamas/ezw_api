@@ -3,7 +3,7 @@ module github.com/chllamas/ezw_api
 go 1.21.7
 
 require (
-	github.com/a-h/templ v0.2.543
+	github.com/a-h/templ v0.2.598
 	github.com/a-h/templ/examples/integration-gin v0.0.0-20240213151838-753ba3966d4a
 	github.com/gin-gonic/gin v1.9.1
 	github.com/golang-jwt/jwt v3.2.2+incompatible
